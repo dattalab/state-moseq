@@ -26,11 +26,11 @@ na = jnp.newaxis
 
 """
 data = {
-    "syllables": (n_sessions, n_timesteps, n_syllables),
-    "mask": (n_sessions, n_timesteps),
+    "syllables": (n_sequences, n_timesteps, n_syllables),
+    "mask": (n_sequences, n_timesteps),
 }
 
-states: (n_sessions, n_timesteps)
+states: (n_sequences, n_timesteps)
 
 params = {
     "emission_base": (n_syllables, n_syllables-1),
@@ -76,10 +76,10 @@ def get_syllable_trans_probs(
 def obs_log_likelihoods(
     data: dict,
     params: dict,
-) -> Float[Array, "n_sessions n_timesteps n_states"]:
+) -> Float[Array, "n_sequences n_timesteps n_states"]:
     """Compute log likelihoods of observations for each hidden state."""
 
-    n_sessions = data["syllables"].shape[0]
+    n_sequences = data["syllables"].shape[0]
     n_states = params["trans_probs"].shape[0]
 
     log_syllable_trans_probs = jnp.log(
@@ -93,7 +93,7 @@ def obs_log_likelihoods(
     )(log_syllable_trans_probs)
 
     log_likelihoods = jnp.concatenate(
-        [jnp.zeros((n_states, n_sessions, 1)), log_likelihoods], axis=2
+        [jnp.zeros((n_states, n_sequences, 1)), log_likelihoods], axis=2
     )
     return log_likelihoods.transpose((1, 2, 0)) * data["mask"][:, :, na]
 
@@ -140,7 +140,7 @@ def resample_states(
     data: dict,
     params: dict,
     parallel: bool = False,
-) -> Tuple[Int[Array, "n_sessions n_timesteps"], Float]:
+) -> Tuple[Int[Array, "n_sequences n_timesteps"], Float]:
     """Resample hidden states from their posterior distribution.
 
     Args:
@@ -170,7 +170,7 @@ def fit_gibbs(
     data: dict,
     hypparams: dict,
     init_params: dict,
-    init_states: Int[Array, "n_sessions n_timesteps"] = None,
+    init_states: Int[Array, "n_sequences n_timesteps"] = None,
     seed: Float[Array, "2"] = jr.PRNGKey(0),
     num_iters: Int = 100,
     parallel: bool = False,
@@ -206,7 +206,7 @@ def fit_gibbs(
 def initialize_params(
     data: dict,
     hypparams: dict,
-    states: Int[Array, "n_sessions n_timesteps"] = None,
+    states: Int[Array, "n_sequences n_timesteps"] = None,
     seed: Float[Array, "2"] = jr.PRNGKey(0),
 ) -> dict:
     """Initialize parameters by sampling from their prior distribution or using
@@ -254,7 +254,7 @@ def fit_gradient_descent(
 def marginal_loglik(
     data: dict,
     params: dict,
-) -> Float[Array, "n_sessions n_timesteps n_states"]:
+) -> Float[Array, "n_sequences n_timesteps n_states"]:
     """Estimate marginal log likelihood of the data"""
     n_states = params["trans_probs"].shape[0]
     mll = jax.vmap(hmm_filter, in_axes=(None, None, 0))(
@@ -268,7 +268,7 @@ def marginal_loglik(
 def smoothed_states(
     data: dict,
     params: dict,
-) -> Float[Array, "n_sessions n_timesteps n_states"]:
+) -> Float[Array, "n_sequences n_timesteps n_states"]:
     """Estimate marginals of hidden states using forward-backward algorithm."""
     n_states = params["trans_probs"].shape[0]
     return jax.vmap(hmm_smoother, in_axes=(None, None, 0))(
@@ -281,7 +281,7 @@ def smoothed_states(
 def filtered_states(
     data: dict,
     params: dict,
-) -> Float[Array, "n_sessions n_timesteps n_states"]:
+) -> Float[Array, "n_sequences n_timesteps n_states"]:
     """Estimate marginals of hidden states using forward-backward algorithm."""
     n_states = params["trans_probs"].shape[0]
     return jax.vmap(hmm_filter, in_axes=(None, None, 0))(
@@ -294,7 +294,7 @@ def filtered_states(
 def predicted_states(
     data: dict,
     params: dict,
-) -> Float[Array, "n_sessions n_timesteps n_states"]:
+) -> Float[Array, "n_sequences n_timesteps n_states"]:
     """Predict hidden states using Viterbi algorithm."""
     n_states = params["trans_probs"].shape[0]
     return jax.vmap(hmm_posterior_mode, in_axes=(None, None, 0))(
@@ -351,15 +351,17 @@ def simulate(
     seed: Float[Array, "2"],
     params: dict,
     n_timesteps: Int,
-    n_sessions: Int,
-) -> Tuple[Int[Array, "n_sessions n_timesteps"], Int[Array, "n_sessions n_timesteps"]]:
+    n_sequences: Int,
+) -> Tuple[
+    Int[Array, "n_sequences n_timesteps"], Int[Array, "n_sequences n_timesteps"]
+]:
     """Simulate data from the model.
 
     Args:
         seed: random seed
         params: parameters dictionary
         n_timesteps: number of timesteps to simulate
-        n_sessions: number of sessions to simulate
+        n_sequences: number of sessions to simulate
 
     Returns:
         states: simulated states
@@ -368,7 +370,7 @@ def simulate(
     seeds = jr.split(seed, 3)
 
     states = jax.vmap(simulate_hmm_states, in_axes=(0, None, None))(
-        jr.split(seeds[0], n_sessions),
+        jr.split(seeds[0], n_sequences),
         params["trans_probs"],
         n_timesteps,
     )
@@ -378,7 +380,7 @@ def simulate(
     )[states]
 
     syllables = jax.vmap(simulate_hmm_states, in_axes=(0, 0, None))(
-        jr.split(seeds[1], n_sessions), syllable_trans_probs, n_timesteps
+        jr.split(seeds[1], n_sequences), syllable_trans_probs, n_timesteps
     )
     return states, syllables
 
@@ -387,7 +389,7 @@ def resample_params(
     seed: Float[Array, "2"],
     data: dict,
     params: dict,
-    states: Int[Array, "n_sessions n_timesteps"],
+    states: Int[Array, "n_sequences n_timesteps"],
     hypparams: dict,
 ) -> Tuple[dict, Float[Array, "gradient_descent_iters"]]:
     """Resample parameters from their posterior distribution. Emission parameters are
@@ -437,9 +439,9 @@ def resample_params(
 @partial(jax.jit, static_argnums=(4, 5, 8))
 def resample_emission_params(
     seed: Float[Array, "2"],
-    syllables: Int[Array, "n_sessions n_timesteps"],
-    mask: Int[Array, "n_sessions n_timesteps"],
-    states: Int[Array, "n_sessions n_timesteps"],
+    syllables: Int[Array, "n_sequences n_timesteps"],
+    mask: Int[Array, "n_sequences n_timesteps"],
+    states: Int[Array, "n_sequences n_timesteps"],
     n_states: int,
     n_syllables: int,
     emission_base_sigma: Float,
@@ -503,8 +505,8 @@ def resample_emission_params(
 @partial(jax.jit, static_argnums=(3,))
 def resample_trans_probs(
     seed: Float[Array, "2"],
-    mask: Int[Array, "n_sessions n_timesteps"],
-    states: Int[Array, "n_sessions n_timesteps"],
+    mask: Int[Array, "n_sequences n_timesteps"],
+    states: Int[Array, "n_sequences n_timesteps"],
     n_states: int,
     beta: Float,
     kappa: Float,
