@@ -1,2 +1,3 @@
 from .util import *
-from .hhmm import *
+from . import hhmm_efficient
+from . import hhmm_simple
