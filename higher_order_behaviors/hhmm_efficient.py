@@ -232,7 +232,7 @@ def fit_gradient_descent(
 def marginal_loglik(
     data: dict,
     params: dict,
-    parallel: Bool = False,
+    parallel: bool = False,
 ) -> Float[Array, "n_sequences n_timesteps n_states"]:
     """Estimate marginal log likelihood of the data"""
     filter_fn = parallel_hmm_filter if parallel else hmm_filter
@@ -248,7 +248,7 @@ def marginal_loglik(
 def smoothed_states(
     data: dict,
     params: dict,
-    parallel: Bool = False,
+    parallel: bool = False,
 ) -> Float[Array, "n_sequences n_timesteps n_states"]:
     """Estimate marginals of hidden states using forward-backward algorithm."""
     smoother_fn = parallel_hmm_smoother if parallel else hmm_smoother
@@ -263,7 +263,7 @@ def smoothed_states(
 def filtered_states(
     data: dict,
     params: dict,
-    parallel: Bool = False,
+    parallel: bool = False,
 ) -> Float[Array, "n_sequences n_timesteps n_states"]:
     """Estimate marginals of hidden states using forward-backward algorithm."""
     filter_fn = parallel_hmm_filter if parallel else hmm_filter
