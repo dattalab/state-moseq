@@ -270,7 +270,7 @@ def filtered_states(
 def predicted_states(
     data: dict,
     params: dict,
-) -> Float[Array, "n_sequences n_timesteps n_states"]:
+) -> Float[Array, "n_sequences n_timesteps"]:
     """Predict hidden states using Viterbi algorithm."""
     n_states = params["trans_probs"].shape[0]
     return jax.vmap(hmm_posterior_mode, in_axes=(None, None, 0))(
