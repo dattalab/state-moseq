@@ -12,6 +12,8 @@ from dynamax.hidden_markov_model import (
     hmm_smoother,
     hmm_posterior_mode,
     hmm_posterior_sample,
+    parallel_hmm_filter,
+    parallel_hmm_smoother
     parallel_hmm_posterior_sample,
 )
 
@@ -230,10 +232,12 @@ def fit_gradient_descent(
 def marginal_loglik(
     data: dict,
     params: dict,
+    parallel: Bool = False,
 ) -> Float[Array, "n_sequences n_timesteps n_states"]:
     """Estimate marginal log likelihood of the data"""
+    filter_fn = parallel_hmm_filter if parallel else hmm_filter
     n_states = params["trans_probs"].shape[0]
-    mll = jax.vmap(hmm_filter, in_axes=(None, None, 0))(
+    mll = jax.vmap(filter_fn, in_axes=(None, None, 0))(
         jnp.ones(n_states) / n_states,
         params["trans_probs"],
         obs_log_likelihoods(data, params),
@@ -244,10 +248,12 @@ def marginal_loglik(
 def smoothed_states(
     data: dict,
     params: dict,
+    parallel: Bool = False,
 ) -> Float[Array, "n_sequences n_timesteps n_states"]:
     """Estimate marginals of hidden states using forward-backward algorithm."""
+    smoother_fn = parallel_hmm_smoother if parallel else hmm_smoother
     n_states = params["trans_probs"].shape[0]
-    return jax.vmap(hmm_smoother, in_axes=(None, None, 0))(
+    return jax.vmap(smoother_fn, in_axes=(None, None, 0))(
         jnp.ones(n_states) / n_states,
         params["trans_probs"],
         obs_log_likelihoods(data, params),
@@ -257,10 +263,12 @@ def smoothed_states(
 def filtered_states(
     data: dict,
     params: dict,
+    parallel: Bool = False,
 ) -> Float[Array, "n_sequences n_timesteps n_states"]:
     """Estimate marginals of hidden states using forward-backward algorithm."""
+    filter_fn = parallel_hmm_filter if parallel else hmm_filter
     n_states = params["trans_probs"].shape[0]
-    return jax.vmap(hmm_filter, in_axes=(None, None, 0))(
+    return jax.vmap(filter_fn, in_axes=(None, None, 0))(
         jnp.ones(n_states) / n_states,
         params["trans_probs"],
         obs_log_likelihoods(data, params),
