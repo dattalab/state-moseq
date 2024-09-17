@@ -13,7 +13,7 @@ from dynamax.hidden_markov_model import (
     hmm_posterior_mode,
     hmm_posterior_sample,
     parallel_hmm_filter,
-    parallel_hmm_smoother
+    parallel_hmm_smoother,
     parallel_hmm_posterior_sample,
 )
 
