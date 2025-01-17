@@ -2,12 +2,10 @@ import jax.numpy as jnp
 import jax.random as jr
 import jax
 import optax
-import tqdm
 from tensorflow_probability.substrates.jax import distributions as tfd
 from jaxtyping import Array, Float, Int, PyTree, Bool
 from typing import Tuple, Union, Callable
 from scipy.optimize import linear_sum_assignment
-from jax_moseq.utils import psd_inv
 from dynamax.utils.optimize import run_gradient_descent
 
 na = jnp.newaxis
@@ -244,3 +242,19 @@ def sample_laplace(
     # sample from laplace approximation
     x = jr.multivariate_normal(seed, mean=mode, cov=covariance_matrix)
     return unravel_fn(x), losses
+
+
+def symmetrize(A):
+    return (A + A.swapaxes(-1, -2)) / 2
+
+
+def psd_solve(A, B, diagonal_boost=1e-6):
+    A = symmetrize(A) + diagonal_boost * jnp.eye(A.shape[-1])
+    L, lower = cho_factor(A, lower=True)
+    x = cho_solve((L, lower), B)
+    return x
+
+
+def psd_inv(A, diagonal_boost=1e-6):
+    Ainv = psd_solve(A, jnp.eye(A.shape[-1]), diagonal_boost=diagonal_boost)
+    return symmetrize(Ainv)
