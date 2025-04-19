@@ -2,6 +2,7 @@ import jax.numpy as jnp
 import jax.random as jr
 import jax
 import optax
+import tqdm
 from tensorflow_probability.substrates.jax import distributions as tfd
 from jaxtyping import Array, Float, Int, PyTree, Bool
 from typing import Tuple, Union, Callable
@@ -258,3 +259,70 @@ def psd_solve(A, B, diagonal_boost=1e-6):
 def psd_inv(A, diagonal_boost=1e-6):
     Ainv = psd_solve(A, jnp.eye(A.shape[-1]), diagonal_boost=diagonal_boost)
     return symmetrize(Ainv)
+
+
+def cross_sequence_mutual_information(
+    sequence1: Int[Array, "n_timesteps"],
+    sequence2: Int[Array, "n_timesteps"],
+    mask: Bool[Array, "n_timesteps"],
+    n_categories: int,
+    pseudo_count: float = 1e-8,
+) -> Float:
+    """Compute cross-sequence mutual information.
+
+    Args:
+        sequence1: first sequence
+        sequence2: second sequence
+        mask: mask for valid timesteps
+        n_categories: number of categories
+        pseudo_count: pseudo count to add to probabilities
+
+    Returns:
+        mi: mutual information
+    """
+    counts = (
+        (jnp.ones((n_categories, n_categories)) * pseudo_count)
+        .at[sequence1, sequence2]
+        .add(mask)
+    )
+    probs = counts / counts.sum()
+    mi = (probs * jnp.log(probs / (probs.sum(1)[:, na] * probs.sum(0)[na, :]))).sum()
+    return mi
+
+
+def lagged_mutual_information(
+    sequences: Int[Array, "n_sequences n_timesteps"],
+    mask: Bool[Array, "n_sequences n_timesteps"],
+    lags: Int[Array, "n_lags"],
+    pseudo_count: float = 1e-8,
+) -> Float[Array, "n_sequences n_lags"]:
+    """Compute mutual information at a range of temporal lags.
+    Args:
+        sequences: sequences from which to compute mutual information
+        mask: mask indicating valid timesteps
+        lags: array of temporal lags
+        pseudo_count: pseudo count to use when computing mutual information
+
+    Returns:
+        lagged_mi: mutual information for each sequence at each lag
+    """
+    n_sequences, n_timesteps = sequences.shape
+    n_lags = len(lags)
+    n_categories = jnp.where(mask, sequences, 0).max().item() + 1
+    cross_mi = jax.vmap(
+        jax.jit(cross_sequence_mutual_information, static_argnums=(3, 4)),
+        in_axes=(0, 0, 0, None, None),
+    )
+    lagged_mi = jnp.zeros((n_sequences, n_lags))
+    shuff_mi = jnp.zeros((n_sequences, n_lags))
+    shuff_seqs = jnp.roll(sequences, 1, axis=0)
+    for i, lag in tqdm.tqdm(enumerate(lags), total = n_lags):
+        lagged_seqs = jnp.roll(sequences, lag, axis=1)
+        lagged_mask = mask.at[:, :lag].set(0)
+        lagged_mi = lagged_mi.at[:, i].set(
+            cross_mi(sequences, lagged_seqs, lagged_mask, n_categories, pseudo_count)
+        )
+        shuff_mi = shuff_mi.at[:, i].set(
+            cross_mi(shuff_seqs, lagged_seqs, lagged_mask, n_categories, pseudo_count)
+        )
+    return lagged_mi, shuff_mi
