@@ -1,6 +1,7 @@
 **/.DS_Store
 testing
 update_pypi.sh
+docs/source/example_data
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

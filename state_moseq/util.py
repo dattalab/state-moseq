@@ -3,11 +3,15 @@ import jax.random as jr
 import jax
 import optax
 import tqdm
+import h5py
+import numpy as np
+from functools import partial
 from tensorflow_probability.substrates.jax import distributions as tfd
 from jaxtyping import Array, Float, Int, PyTree, Bool
-from typing import Tuple, Union, Callable
+from typing import Tuple, Union, Callable, Dict, Optional
 from scipy.optimize import linear_sum_assignment
 from dynamax.utils.optimize import run_gradient_descent
+from jax.scipy.linalg import cho_factor, cho_solve
 
 na = jnp.newaxis
 
@@ -121,8 +125,8 @@ def sample_inv_gamma(
 ) -> Float:
     return 1.0 / sample_gamma(seed, a, b)
 
-
-def simulate_hmm_states(
+@partial(jax.jit, static_argnames=["n_timesteps"])
+def simulate_markov_chain(
     seed: Float[Array, "2"],
     trans_probs: Union[
         Float[Array, "n_states n_states"], Float[Array, "n_timesteps n_states n_states"]
@@ -153,6 +157,29 @@ def simulate_hmm_states(
 
     _, states = jax.lax.scan(step, init_state, (seeds[1:], log_trans_probs))
     return states
+
+
+def count_transitions(
+    states: Int[Array, "n_timesteps"],
+    mask: Int[Array, "n_timesteps"],
+    n_states: int,
+) -> Float[Array, "n_states n_states"]:
+    """Count transitions between states.
+
+    Args:
+        states: discrete state sequence
+        mask: mask of valid observations
+        n_states: number of discrete states
+
+    Returns:
+        trans_counts: transition counts
+    """
+    trans_counts = (
+        jnp.zeros((n_states, n_states))
+        .at[states[:-1], states[1:]]
+        .add(mask[:-1])
+    )
+    return trans_counts
 
 
 def compare_states(
@@ -296,7 +323,8 @@ def lagged_mutual_information(
     lags: Int[Array, "n_lags"],
     pseudo_count: float = 1e-8,
 ) -> Float[Array, "n_sequences n_lags"]:
-    """Compute mutual information at a range of temporal lags.
+    """Compute mutual information at a range of lags for real data and equivalent Markov chains.
+    
     Args:
         sequences: sequences from which to compute mutual information
         mask: mask indicating valid timesteps
@@ -304,25 +332,211 @@ def lagged_mutual_information(
         pseudo_count: pseudo count to use when computing mutual information
 
     Returns:
-        lagged_mi: mutual information for each sequence at each lag
+        real_mi: mutual information for each sequence at each lag
+        markov_mi: mutual information for equivalent Markov chains at each lag
+        shuff_mi: mutual information across randomly paired sequences at each lag
     """
+    # get dimensions and number of categories
     n_sequences, n_timesteps = sequences.shape
     n_lags = len(lags)
     n_categories = jnp.where(mask, sequences, 0).max().item() + 1
+
+    # simulate Markov chains
+    seeds = jr.split(jr.PRNGKey(0), n_sequences)
+    trans_counts = jax.vmap(count_transitions, in_axes=(0, 0, None))(sequences, mask, n_categories)
+    trans_probs = trans_counts / trans_counts.sum(axis=2, keepdims=True)
+    markov_seqs = jnp.zeros((n_sequences, n_timesteps), dtype=int)
+    for i in tqdm.trange(n_sequences, desc="Simulating Markov chains"):
+        markov_seqs = markov_seqs.at[i].set(
+            simulate_markov_chain(seeds[i], trans_probs[i], n_timesteps)
+        )
+
+    # compute mutual information 
     cross_mi = jax.vmap(
         jax.jit(cross_sequence_mutual_information, static_argnums=(3, 4)),
         in_axes=(0, 0, 0, None, None),
     )
-    lagged_mi = jnp.zeros((n_sequences, n_lags))
+    real_mi = jnp.zeros((n_sequences, n_lags))
+    markov_mi = jnp.zeros((n_sequences, n_lags))
     shuff_mi = jnp.zeros((n_sequences, n_lags))
+
     shuff_seqs = jnp.roll(sequences, 1, axis=0)
-    for i, lag in tqdm.tqdm(enumerate(lags), total = n_lags):
-        lagged_seqs = jnp.roll(sequences, lag, axis=1)
+    for i, lag in tqdm.tqdm(enumerate(lags), total=n_lags, desc="Computing MI"):
+        lagged_real_seqs = jnp.roll(sequences, lag, axis=1)
+        lagged_markov_seqs = jnp.roll(markov_seqs, lag, axis=1)
         lagged_mask = mask.at[:, :lag].set(0)
-        lagged_mi = lagged_mi.at[:, i].set(
-            cross_mi(sequences, lagged_seqs, lagged_mask, n_categories, pseudo_count)
+
+        real_mi = real_mi.at[:, i].set(
+            cross_mi(sequences, lagged_real_seqs, lagged_mask, n_categories, pseudo_count)
+        )
+        markov_mi = markov_mi.at[:, i].set(
+            cross_mi(markov_seqs, lagged_markov_seqs, lagged_mask, n_categories, pseudo_count)
         )
         shuff_mi = shuff_mi.at[:, i].set(
-            cross_mi(shuff_seqs, lagged_seqs, lagged_mask, n_categories, pseudo_count)
+            cross_mi(shuff_seqs, lagged_real_seqs, lagged_mask, n_categories, pseudo_count)
         )
-    return lagged_mi, shuff_mi
+    return real_mi, markov_mi, shuff_mi
+
+
+def save_hdf5(
+    filepath: str,
+    save_dict: Dict[str, PyTree],
+    datapath: Optional[str] = None,
+    overwrite_results: bool = False,
+) -> None:
+    """Save a dict of pytrees to an hdf5 file. The leaves of the pytrees must
+    be numpy arrays, scalars, or strings.
+
+    Args:
+        filepath: Path of the hdf5 file to create.
+        save_dict: Dictionary where the values are pytrees.
+        datapath: Path within hdf5 file to save the data. If None, data are saved at the root.
+    """
+    with h5py.File(filepath, "a") as f:
+        if datapath is not None:
+            _savetree_hdf5(jax.device_get(save_dict), f, datapath)
+        else:
+            for k, tree in save_dict.items():
+                _savetree_hdf5(jax.device_get(tree), f, k)
+
+
+def load_hdf5(
+    filepath: str,
+    datapath: Optional[str] = None,
+) -> Dict[str, PyTree]:
+    """Load a dict of pytrees from an hdf5 file.
+
+    Args:
+        filepath: Path of the hdf5 file to load.
+        datapath: Path within hdf5 file to load data from. If None, loads from the root.
+
+    Returns:
+        save_dict: Dictionary where the values are pytrees.
+    """
+    with h5py.File(filepath, "r") as f:
+        if datapath is None:
+            return {k: _loadtree_hdf5(f[k]) for k in f}
+        else:
+            return _loadtree_hdf5(f[datapath])
+
+
+def _savetree_hdf5(tree: PyTree, group: h5py.Group, name: str) -> None:
+    """Recursively save a pytree to an h5 file group."""
+    if name in group:
+        del group[name]
+    if isinstance(tree, np.ndarray):
+        if tree.dtype.kind == "U":
+            dt = h5py.special_dtype(vlen=str)
+            group.create_dataset(name, data=tree.astype(object), dtype=dt)
+        else:
+            group.create_dataset(name, data=tree)
+    elif isinstance(tree, (float, int, str)):
+        group.create_dataset(name, data=tree)
+    else:
+        subgroup = group.create_group(name)
+        subgroup.attrs["type"] = type(tree).__name__
+
+        if isinstance(tree, (tuple, list)):
+            for k, subtree in enumerate(tree):
+                _savetree_hdf5(subtree, subgroup, f"arr{k}")
+        elif isinstance(tree, dict):
+            for k, subtree in tree.items():
+                _savetree_hdf5(subtree, subgroup, k)
+        else:
+            raise ValueError(f"Unrecognized type {type(tree)}")
+
+
+def _loadtree_hdf5(leaf: Union[h5py.Dataset, h5py.Group]) -> PyTree:
+    """Recursively load a pytree from an h5 file group."""
+    if isinstance(leaf, h5py.Dataset):
+        data = np.array(leaf[()])
+        if h5py.check_dtype(vlen=data.dtype) == str:
+            data = np.array([item.decode("utf-8") for item in data])
+        elif data.dtype.kind == "S":
+            data = data.item().decode("utf-8")
+        elif data.shape == ():
+            data = data.item()
+        return data
+    else:
+        leaf_type = leaf.attrs["type"]
+        values = map(_loadtree_hdf5, leaf.values())
+        if leaf_type == "dict":
+            return dict(zip(leaf.keys(), values))
+        elif leaf_type == "list":
+            return list(values)
+        elif leaf_type == "tuple":
+            return tuple(values)
+        else:
+            raise ValueError(f"Unrecognized type {leaf_type}")
+
+
+def unbatch(
+    data: Array,
+    keys: Union[list[str], Array],
+    bounds: Int[Array, "n_segs 2"]
+) -> Dict[str, Array]:
+    """Invert :py:func:`state_moseq.util.batch`
+
+    Args:
+        data: Stack of segmented time-series, shape (n_segs, seg_length, ...).
+        keys: Name of the time-series that each segment came from
+        bounds: Start and end indices for each segment.
+
+    Returns:
+        data_dict: Dictionary mapping names to reconstructed time-series.
+    """
+    data_dict = {}
+    for key in set(list(keys)):
+        length = bounds[keys == key, 1].max()
+        seq = np.zeros((int(length), *data.shape[2:]), dtype=data.dtype)
+        for (s, e), d in zip(bounds[keys == key], data[keys == key]):
+            seq[s:e] = d[: e - s]
+        data_dict[key] = seq
+    return data_dict
+
+
+def batch(
+    data_dict: Dict[str, Array],
+    keys: Optional[list[str]] = None,
+    seg_length: Optional[int] = None,
+    seg_overlap: int = 30,
+) -> Tuple[Array, Int[Array, "N seg_length"], Tuple[list[str], Int[Array, "N 2"]]]:
+    """Stack time-series data of different lengths into a single array for batch
+    processing, optionally breaking up the data into fixed length segments. The
+    data is padded so that the stacked array isn't ragged. The padding
+    repeats the last frame of each time-series until the end of the segment.
+
+    Args:
+        data_dict: Dictionary of time-series, each of shape (T, ...).
+        keys: Optional list of keys to control order and inclusion of time-series.
+        seg_length: Length of each segment. Defaults to max sequence length.
+        seg_overlap: Overlap between segments in frames.
+
+    Returns:
+        data: Stacked data array, shape (N, seg_length, ...).
+        mask: Binary mask for valid data (1 = valid, 0 = padding), shape (N, seg_length).
+        metadata: Tuple (keys, bounds), identifying sources and segment positions.
+    """
+    if keys is None:
+        keys = sorted(data_dict.keys())
+    Ns = [len(data_dict[key]) for key in keys]
+    if seg_length is None:
+        seg_length = np.max(Ns)
+
+    stack, mask, keys_out, bounds = [], [], [], []
+    for key, N in zip(keys, Ns):
+        for start in range(0, N, seg_length):
+            arr = data_dict[key]
+            end = min(start + seg_length + seg_overlap, N)
+            pad_length = seg_length + seg_overlap - (end - start)
+            padding = np.repeat(arr[end - 1 : end], pad_length, axis=0)
+            mask.append(np.hstack([np.ones(end - start), np.zeros(pad_length)]))
+            stack.append(np.concatenate([arr[start:end], padding], axis=0))
+            keys_out.append(key)
+            bounds.append((start, end))
+
+    stack = np.stack(stack)
+    mask = np.stack(mask)
+    metadata = (np.array(keys_out), np.array(bounds))
+    return stack, mask, metadata
+

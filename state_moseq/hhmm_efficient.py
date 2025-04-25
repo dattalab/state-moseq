@@ -18,10 +18,11 @@ from dynamax.hidden_markov_model import (
 )
 
 from .util import (
-    simulate_hmm_states,
+    simulate_markov_chain,
     lower_dim,
     raise_dim,
     sample_laplace,
+    count_transitions
 )
 
 na = jnp.newaxis
@@ -30,7 +31,7 @@ na = jnp.newaxis
 def estimate_emission_params(
     sufficient_stats: Float[Array, "n_states n_syllables n_syllables"],
 ) -> Tuple[
-    Float[Array, "n_syllables n_syllables-1"], Float[Array, "n_states n_syllables-1"]
+    Float[Array, "n_syllables n_syllables-1"], Float[Array, "n_states-1 n_syllables-1"]
 ]:
     """Estimate emission parameters from transition counts."""
     logits = jnp.log(sufficient_stats + 1e-2)
@@ -42,7 +43,7 @@ def estimate_emission_params(
 
 def get_syllable_trans_probs(
     emission_base: Float[Array, "n_syllables n_syllables-1"],
-    emission_biases: Float[Array, "n_states n_syllables-1"],
+    emission_biases: Float[Array, "n_states-1 n_syllables-1"],
 ) -> Float[Array, "n_states n_syllables n_syllables"]:
     """Compute transition probabilities between syllables."""
     emission_base = raise_dim(emission_base, 1)
@@ -353,7 +354,7 @@ def simulate(
     """
     seeds = jr.split(seed, 3)
 
-    states = jax.vmap(simulate_hmm_states, in_axes=(0, None, None))(
+    states = jax.vmap(simulate_markov_chain, in_axes=(0, None, None))(
         jr.split(seeds[0], n_sequences),
         params["trans_probs"],
         n_timesteps,
@@ -363,7 +364,7 @@ def simulate(
         params["emission_biases"],
     )[states]
 
-    syllables = jax.vmap(simulate_hmm_states, in_axes=(0, 0, None))(
+    syllables = jax.vmap(simulate_markov_chain, in_axes=(0, 0, None))(
         jr.split(seeds[1], n_sequences), syllable_trans_probs, n_timesteps
     )
     return states, syllables
@@ -372,9 +373,9 @@ def simulate(
 def resample_params(
     seed: Float[Array, "2"],
     data: dict,
-    params: dict,
     states: Int[Array, "n_sequences n_timesteps"],
     hypparams: dict,
+    params: dict = None,
 ) -> Tuple[dict, Float[Array, "gradient_descent_iters"]]:
     """Resample parameters from their posterior distribution. Emission parameters are
     resampled using a Laplace approximation; the mode is found using gradient descent.
@@ -382,15 +383,22 @@ def resample_params(
     Args:
         seed: random seed
         data: data dictionary
-        params: parameters dictionary
         states: hidden states
         hypparams: hyperparameters dictionary
+        params: parameters dictionary (optional; used for initializing gradient descent)
 
     Returns:
         params: parameters dictionary
         losses: losses recorded during gradient descent
     """
     seeds = jr.split(seed, 2)
+
+    if params is None:
+        init_emission_base = None
+        init_emission_biases = None
+    else:
+        init_emission_base = params["emission_base"]
+        init_emission_biases = params["emission_biases"]
 
     emission_params, gd_losses = resample_emission_params(
         seeds[1],
@@ -403,6 +411,8 @@ def resample_params(
         hypparams["emission_biases_sigma"],
         hypparams["emission_gd_iters"],
         hypparams["emission_gd_lr"],
+        init_emission_base,
+        init_emission_biases,
     )
     trans_probs = resample_trans_probs(
         seeds[2],
@@ -420,7 +430,7 @@ def resample_params(
     return params, gd_losses
 
 
-@partial(jax.jit, static_argnums=(4, 5, 8))
+@partial(jax.jit, static_argnums=(4,5,8,))
 def resample_emission_params(
     seed: Float[Array, "2"],
     syllables: Int[Array, "n_sequences n_timesteps"],
@@ -432,10 +442,12 @@ def resample_emission_params(
     emission_biases_sigma: Float,
     gradient_descent_iters: Int = 100,
     gradient_descent_lr: Float = 1e-3,
+    init_emission_base: Float[Array, "n_syllables n_syllables-1"] = None,
+    init_emission_biases: Float[Array, "n_states-1 n_syllables-1"] = None,
 ) -> Tuple[
     Tuple[
         Float[Array, "n_syllables n_syllables-1"],
-        Float[Array, "n_states n_syllables-1"],
+        Float[Array, "n_states-1 n_syllables-1"],
     ],
     Float[Array, "gradient_descent_iters"],
 ]:
@@ -452,6 +464,8 @@ def resample_emission_params(
         emission_biases_sigma: emission biases standard deviation
         gradient_descent_iters: number of gradient descent iterations
         gradient_descent_lr: gradient descent loss rate
+        init_emission_base: initial emission base parameters (optional)
+        init_emission_biases: initial emission biases parameters (optional)
 
     Returns:
         emission_base: posterior emission base parameters
@@ -477,7 +491,10 @@ def resample_emission_params(
         syllables_log_prob = (jnp.log(syllable_trans_probs) * sufficient_stats).sum()
         return prior_log_prob + syllables_log_prob
 
-    init_emission_params = estimate_emission_params(sufficient_stats)
+    if init_emission_base is None or init_emission_biases is None:
+        init_emission_params = estimate_emission_params(sufficient_stats)
+    else:
+        init_emission_params = (init_emission_base, init_emission_biases)
     (emission_base, emission_biases), losses = sample_laplace(
         seed,
         log_prob_fn,
@@ -510,11 +527,7 @@ def resample_trans_probs(
     Returns:
         trans_probs: posterior transition probabilities
     """
-    trans_counts = (
-        jnp.zeros((n_states, n_states))
-        .at[states[:, :-1], states[:, 1:]]
-        .add(mask[:, :-1])
-    )
+    trans_counts = jax.vmap(count_transitions, in_axes=(0, 0, None))(states, mask, n_states).sum(0)
     trans_probs = jax.vmap(jr.dirichlet)(
         jr.split(seed, n_states), trans_counts + beta + jnp.eye(n_states) * kappa
     )

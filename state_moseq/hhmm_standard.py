@@ -16,9 +16,10 @@ from dynamax.hidden_markov_model import (
 )
 
 from .util import (
-    simulate_hmm_states,
+    simulate_markov_chain,
     lower_dim,
     raise_dim,
+    count_transitions,
 )
 
 na = jnp.newaxis
@@ -301,7 +302,7 @@ def simulate(
     """
     seeds = jr.split(seed, 3)
 
-    states = jax.vmap(simulate_hmm_states, in_axes=(0, None, None))(
+    states = jax.vmap(simulate_markov_chain, in_axes=(0, None, None))(
         jr.split(seeds[0], n_sequences),
         params["trans_probs"],
         n_timesteps,
@@ -309,7 +310,7 @@ def simulate(
 
     syllable_trans_probs = params["emissions"][states]
 
-    syllables = jax.vmap(simulate_hmm_states, in_axes=(0, 0, None))(
+    syllables = jax.vmap(simulate_markov_chain, in_axes=(0, 0, None))(
         jr.split(seeds[1], n_sequences), syllable_trans_probs, n_timesteps
     )
     return states, syllables
@@ -430,11 +431,7 @@ def resample_trans_probs(
     Returns:
         trans_probs: posterior transition probabilities
     """
-    trans_counts = (
-        jnp.zeros((n_states, n_states))
-        .at[states[:, :-1], states[:, 1:]]
-        .add(mask[:, :-1])
-    )
+    trans_counts = jax.vmap(count_transitions, in_axes=(0, 0, None))(states, mask, n_states).sum(0)
     trans_probs = jax.vmap(jr.dirichlet)(
         jr.split(seed, n_states), trans_counts + beta + jnp.eye(n_states) * kappa
     )
