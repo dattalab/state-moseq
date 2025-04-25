@@ -11,7 +11,7 @@ State MoSeq
      - TODO: Paper
      - `License <https://github.com/dattalab/state-moseq/blob/main/LICENSE.md>`_
 
-State MoSeq (sMoSeq) is a method for discovering higher-order states in animal behavior. Given low-level behavior labels (e.g. MoSeq syllables), sMoSeq fits a hierarchical hidden Markov model to identify how behaviors are clustered over time. 
+State MoSeq (sMoSeq) is a method for discovering high-level states in animal behavior. Given low-level behavior labels (e.g. MoSeq syllables), sMoSeq fits a hierarchical hidden Markov model to identify how behaviors are clustered over time. 
 
 
 .. toctree::

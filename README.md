@@ -1,6 +1,6 @@
 # State MoSeq 
 
-State MoSeq (sMoSeq) is a method for discovering higher-order states in animal behavior. Given low-level behavior labels (e.g. MoSeq syllables), sMoSeq fits a hierarchical hidden Markov model to identify how behaviors are clustered over time. For additional details, see the [TODO: add paper link].
+State MoSeq (sMoSeq) is a method for discovering high-level states states in animal behavior. Given low-level behavior labels (e.g. MoSeq syllables), sMoSeq fits a hierarchical hidden Markov model to identify how behaviors are clustered over time. For additional details, see the [TODO: add paper link].
 
 
 ## [Documentation](https://state-moseq.readthedocs.io/en/latest/)
