@@ -1,4 +1,5 @@
 from .util import *
+from .viz import *
 from . import hhmm_efficient
 from . import hhmm_standard
 

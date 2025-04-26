@@ -8,7 +8,7 @@ import numpy as np
 from functools import partial
 from tensorflow_probability.substrates.jax import distributions as tfd
 from jaxtyping import Array, Float, Int, PyTree, Bool
-from typing import Tuple, Union, Callable, Dict, Optional
+from typing import Tuple, Union, Callable, Dict, Optional, List
 from scipy.optimize import linear_sum_assignment
 from dynamax.utils.optimize import run_gradient_descent
 from jax.scipy.linalg import cho_factor, cho_solve
@@ -253,7 +253,6 @@ def sample_laplace(
         params: sampled parameters
         losses: loss history
     """
-
     # find the mode of the posterior
     mode, _, losses = run_gradient_descent(
         lambda x: -log_prob_fn(x),
@@ -272,18 +271,38 @@ def sample_laplace(
     return unravel_fn(x), losses
 
 
-def symmetrize(A):
+def symmetrize(A: Float[Array, "n n"]) -> Float[Array, "n n"]:
+    """Symmetrize a matrix by averaging it with its transpose."""
     return (A + A.swapaxes(-1, -2)) / 2
 
 
-def psd_solve(A, B, diagonal_boost=1e-6):
+def psd_solve(
+    A: Float[Array, "n n"], 
+    B: Float[Array, "n m"], 
+    diagonal_boost: float = 1e-6
+) -> Float[Array, "n m"]:
+    """Solve the linear system Ax = B, where A is a positive semi-definite matrix.
+    Args:
+        A: positive semi-definite matrix
+        B: right-hand side matrix
+        diagonal_boost: boost to diagonal to ensure positive definiteness
+    Returns:
+        x: solution to the linear system
+    """
     A = symmetrize(A) + diagonal_boost * jnp.eye(A.shape[-1])
     L, lower = cho_factor(A, lower=True)
     x = cho_solve((L, lower), B)
     return x
 
 
-def psd_inv(A, diagonal_boost=1e-6):
+def psd_inv(A : Float[Array, "n n"], diagonal_boost: float = 1e-6) -> Float[Array, "n n"]:
+    """Compute the inverse of a positive semi-definite matrix using Cholesky decomposition.
+    Args:
+        A: positive semi-definite matrix
+        diagonal_boost: boost to diagonal to ensure positive definiteness
+    Returns:
+        Ainv: inverse of the matrix
+    """
     Ainv = psd_solve(A, jnp.eye(A.shape[-1]), diagonal_boost=diagonal_boost)
     return symmetrize(Ainv)
 
@@ -540,3 +559,58 @@ def batch(
     metadata = (np.array(keys_out), np.array(bounds))
     return stack, mask, metadata
 
+
+def get_durations(
+    states_dict: Dict[str, Int[Array, "n_timesteps"]]
+) -> Int[Array, "n_durations"]:
+    """Get durations of high-level states.
+
+    Args:
+        states_dict: Dictionary of high-level state sequences.
+
+    Returns:
+        durations: Times between high-level state transitions (across all sequences).
+
+    Examples:
+        >>> states_dict = {
+        ...     'name1': np.array([1, 1, 2, 2, 2, 3]),
+        ...     'name2': np.array([0, 0, 0, 1]),
+        ... }
+        >>> get_durations(states_dict)
+        array([2, 3, 1, 3, 1])
+    """
+    stateseq_flat = np.hstack(list(states_dict.values()))
+    stateseq_padded = np.hstack([[-1], stateseq_flat, [-1]])
+    changepoints = np.diff(stateseq_padded).nonzero()[0]
+    return changepoints[1:] - changepoints[:-1]
+
+
+def sample_instances(
+    states_dict: Dict[str, Int[Array, "n_timesteps"]],
+    num_instances: int,
+) -> Dict[int, List[Tuple[str, int, int]]]:
+    """Randomly sample instances of each state.
+
+    Args:
+        states_dict: Dictionary of state sequences.
+        num_instances: Number of instances per state.
+
+    Returns:
+        sampled_instances: Dictionary mapping state index to instances.
+    """
+    state_ixs = np.unique(np.hstack(list(states_dict.values())))
+    all_instances = {state_ix: [] for state_ix in state_ixs}
+
+    for key, stateseq in states_dict.items():
+        transitions = np.nonzero(stateseq[1:] != stateseq[:-1])[0] + 1
+        starts = np.insert(transitions, 0, 0)
+        ends = np.append(transitions, len(stateseq))
+        for s, e, state in zip(starts, ends, stateseq[starts]):
+            all_instances[state].append((key, s, e))
+
+    sampled_instances = {}
+    for state_ix, instances in all_instances.items():
+        subset = np.random.permutation(len(instances))[:num_instances]
+        sampled_instances[state_ix] = [instances[i] for i in subset]
+
+    return sampled_instances
