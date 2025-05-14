@@ -145,17 +145,22 @@ def simulate_markov_chain(
     """
     seeds = jr.split(seed, n_timesteps + 1)
     n_states = trans_probs.shape[0]
-    if trans_probs.ndim == 2:
-        trans_probs = jnp.repeat(trans_probs[na, ...], n_timesteps, axis=0)
     log_trans_probs = jnp.log(trans_probs)
     init_state = jr.categorical(seeds[0], jnp.ones(n_states) / n_states)
 
-    def step(state, args):
-        seed, logT = args
-        next_state = jr.categorical(seed, logT[state])
-        return next_state, next_state
+    if trans_probs.ndim == 2:
+        def step(state, seed):
+            next_state = jr.categorical(seed, logT[state])
+            return next_state, next_state
+        _, states = jax.lax.scan(step, init_state, seeds[1:])
 
-    _, states = jax.lax.scan(step, init_state, (seeds[1:], log_trans_probs))
+    else:
+        def step(state, args):
+            seed, logT = args
+            next_state = jr.categorical(seed, logT[state])
+            return next_state, next_state
+        _, states = jax.lax.scan(step, init_state, (seeds[1:], log_trans_probs))
+        
     return states
 
 
