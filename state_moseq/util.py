@@ -150,7 +150,7 @@ def simulate_markov_chain(
 
     if trans_probs.ndim == 2:
         def step(state, seed):
-            next_state = jr.categorical(seed, logT[state])
+            next_state = jr.categorical(seed, log_trans_probs[state])
             return next_state, next_state
         _, states = jax.lax.scan(step, init_state, seeds[1:])
 
