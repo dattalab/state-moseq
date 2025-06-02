@@ -12,6 +12,7 @@ from typing import Tuple, Union, Callable, Dict, Optional, List
 from scipy.optimize import linear_sum_assignment
 from dynamax.utils.optimize import run_gradient_descent
 from jax.scipy.linalg import cho_factor, cho_solve
+from sklearn.metrics import adjusted_rand_score
 
 na = jnp.newaxis
 
@@ -188,25 +189,32 @@ def count_transitions(
 
 
 def compare_states(
-    true_states: Int[Array, "n_sessions n_timesteps"],
-    pred_states: Int[Array, "n_sessions n_timesteps"],
-    n_states: Int,
+    states1: Union[Int[Array, "n_timesteps"], Dict[str, Int[Array, "n_timesteps"]]],
+    states2: Union[Int[Array, "n_timesteps"], Dict[str, Int[Array, "n_timesteps"]]],
+    n_states: Int = None,
 ) -> Tuple[Int[Array, "n_states n_states"], Int[Array, "n_states"], Float]:
-    """Compare true and predicted states.
+    """Compare high-level state sequences.
 
     Args:
-        true_states: true state sequences
-        pred_states: predicted state sequences
-        n_states: number of states
+        states1: first set of state sequences (can be an array or dictionary of sequences)
+        states2: second set of state sequences (can be an array or dictionary of sequences)
+        n_states: number of discrete states. If None, inferred from data.
 
     Returns:
         confusion_matrix: confusion matrix
-        optimal_permutation: optimal permutation of predicted states
-        accuracy: proportion of correct labels (after optimal permutation)
+        optimal_permutation: optimal permutation of first set of states to match second set
+        accuracy: proportion of timepoints with matching labels (after optimal permutation)
     """
-    confusion = jnp.zeros((n_states, n_states)).at[pred_states, true_states].add(1)
+    if isinstance(states1, dict):
+        states1 = _concatenate_stateseqs(states1)
+    if isinstance(states2, dict):
+        states2 = _concatenate_stateseqs(states2)
+    if n_states is None:
+        n_states = max(states1.max(), states2.max()) + 1
+
+    confusion = jnp.zeros((n_states, n_states)).at[states1, states2].add(1)
     optimal_perm = linear_sum_assignment(-confusion.T)[1]
-    accuracy = confusion[optimal_perm, jnp.arange(n_states)].sum() / true_states.size
+    accuracy = confusion[optimal_perm, jnp.arange(n_states)].sum() / states2.size
     confusion = confusion / confusion.sum(axis=1, keepdims=True)
     return confusion, optimal_perm, accuracy
 
@@ -619,3 +627,64 @@ def sample_instances(
         sampled_instances[state_ix] = [instances[i] for i in subset]
 
     return sampled_instances
+
+
+def _concatenate_stateseqs(states_dict):
+    """Concatenate high-level state sequences from a dictionary into a single array."""
+    return np.hstack([states_dict[key] for key in sorted(states_dict.keys())]).astype(int)
+
+
+def get_frequencies(
+    states_dict: Dict[str, Int[Array, "n_timesteps"]],
+    num_states: Optional[int] = None,
+    runlength: bool = False,
+) -> Float[Array, "n_states"]:
+    """Get frequencies for a batch of high-level state sequences.
+
+    Args:
+        states_dict: Dictionary of high-level state sequences.
+        num_states: Total number of states. If None, inferred from data.
+        runlength: If True, count only the first timepoint of each run of a state.
+    
+    Returns:
+        frequencies: Frequency of each state across all state sequences
+
+    Examples:
+        >>> states_dict = {
+            'name1': np.array([1, 1, 2, 2, 2, 3]),
+            'name2': np.array([0, 0, 0, 1])}
+        >>> get_frequencies(states_dict, runlength=True)
+        array([0.2, 0.4, 0.2, 0.2])
+        >>> get_frequencies(states_dict, runlength=False)
+        array([0.3, 0.3, 0.3, 0.1])
+    """
+    stateseq_flat = _concatenate_stateseqs(states_dict)
+
+    if num_states is None:
+        num_states = np.max(stateseq_flat) + 1
+
+    if runlength:
+        state_onsets = np.pad(np.diff(stateseq_flat).nonzero()[0] + 1, (1, 0))
+        stateseq_flat = stateseq_flat[state_onsets]
+
+    counts = np.bincount(stateseq_flat, minlength=num_states)
+    frequencies = counts / counts.sum()
+    return frequencies
+
+
+def get_adjusted_rand(
+    states_dict1: Dict[str, Int[Array, "n_timesteps"]],
+    states_dict2: Dict[str, Int[Array, "n_timesteps"]],
+    downsample: int = 10,
+) -> float:
+    """Compute the adjusted Rand index between two sets of high-level state sequences.
+    Args:
+        states_dict1: First dictionary of high-level state sequences.
+        states_dict2: Second dictionary of high-level state sequences.
+        downsample: Downsampling factor to reduce the length of the sequences.
+    Returns:
+        adjusted_rand_index: Adjusted Rand index between the two sets of state sequences.
+    """
+    seq1 = _concatenate_stateseqs(states_dict1)[::downsample]
+    seq2 = _concatenate_stateseqs(states_dict2)[::downsample]
+    return  adjusted_rand_score(seq1, seq2)

@@ -6,8 +6,9 @@ import tqdm
 from vidio.read import OpenCVReader
 from typing import Dict, Tuple, List, Union
 from jaxtyping import Array, Float, Int
-
-from .util import sample_instances
+import plotly.graph_objects as go
+import matplotlib.pyplot as plt
+from .util import sample_instances, compare_states, get_frequencies
 
 def crop_image(
     image: Array,
@@ -165,3 +166,61 @@ def generate_grid_movies(
         write_video_clip(frames, path, fps=fps, quality=quality)
 
     return instances
+
+
+
+def plot_sankey(
+    states_dict1: Dict[str, Int[Array, "n_timesteps"]],
+    states_dict2: Dict[str, Int[Array, "n_timesteps"]],
+) -> go.Figure:
+    """Create a Sankey diagram representing the relationship between two sets of states.
+
+    Args:
+        states_dict1: First dictionary of state sequences.
+        states_dict2: Second dictionary of state sequences.
+
+    Returns:
+        fig: Plotly figure object containing the Sankey diagram.
+    """
+    import plotly.io as pio
+    pio.renderers.default = "notebook"
+
+    confusion_matrix = compare_states(states_dict1, states_dict2)[0]
+    frequencies1 = get_frequencies(states_dict1)
+    frequencies2 = get_frequencies(states_dict2)
+    n1, n2 = confusion_matrix.shape
+    
+    cmap = plt.get_cmap("tab20")
+    node_colors = [f"rgba({int(r*255)},{int(g*255)},{int(b*255)},0.8)" 
+                   for r, g, b, _ in [cmap(i % 20) for i in range(max(n1, n2))]]
+    node_colors_combined = node_colors[:n1] + node_colors[:n2]
+    node_labels = [f"state {i}" for i in range(n1)] + [f"state {i}" for i in range(n2)]
+
+    sources, targets, values, link_colors = [], [], [], []
+    for i in range(n1):
+        for j in range(n2):
+            val = confusion_matrix[i, j] * frequencies1[i]
+            if val > 0:
+                sources.append(i)
+                targets.append(n1 + j)  # offset right side
+                values.append(val)
+                link_colors.append(node_colors[i])
+
+    # Build Sankey
+    fig = go.Figure(go.Sankey(
+        arrangement="snap",
+        node=dict(
+            pad=15,
+            thickness=20,
+            line=dict(color="black", width=0.5),
+            label=node_labels,
+            color=node_colors_combined
+        ),
+        link=dict(
+            source=sources,
+            target=targets,
+            value=values,
+            color=link_colors
+        )
+    ))
+    return fig
