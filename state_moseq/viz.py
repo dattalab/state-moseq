@@ -188,7 +188,7 @@ def plot_sankey(
     confusion_matrix = compare_states(states_dict1, states_dict2)[0]
     frequencies1 = get_frequencies(states_dict1)
     frequencies2 = get_frequencies(states_dict2)
-    n1, n2 = confusion_matrix.shape
+    n1, n2 = len(frequencies1), len(frequencies2)
     
     cmap = plt.get_cmap("tab20")
     node_colors = [f"rgba({int(r*255)},{int(g*255)},{int(b*255)},0.8)" 
