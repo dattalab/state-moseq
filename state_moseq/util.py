@@ -126,6 +126,7 @@ def sample_inv_gamma(
 ) -> Float:
     return 1.0 / sample_gamma(seed, a, b)
 
+
 @partial(jax.jit, static_argnames=["n_timesteps"])
 def simulate_markov_chain(
     seed: Float[Array, "2"],
@@ -133,6 +134,7 @@ def simulate_markov_chain(
         Float[Array, "n_states n_states"], Float[Array, "n_timesteps n_states n_states"]
     ],
     n_timesteps: Int,
+    init_probs: Optional[Float[Array, "n_states"]] = None,
 ) -> Int[Array, "n_timesteps"]:
     """Simulate a state sequence from in Markov chain.
 
@@ -140,6 +142,7 @@ def simulate_markov_chain(
         seed: random seed
         trans_probs: transition probabilities between states
         n_timesteps: number of timesteps to simulate
+        init_probs: initial state probabilities. If None, uniform distribution is used.
 
     Returns:
         states: simulated state sequence
@@ -147,7 +150,9 @@ def simulate_markov_chain(
     seeds = jr.split(seed, n_timesteps + 1)
     n_states = trans_probs.shape[0]
     log_trans_probs = jnp.log(trans_probs)
-    init_state = jr.categorical(seeds[0], jnp.ones(n_states) / n_states)
+    if init_probs is None:
+        init_probs = jnp.ones(n_states) / n_states
+    init_state = jr.categorical(seeds[0], init_probs)
 
     if trans_probs.ndim == 2:
         def step(state, seed):
@@ -381,10 +386,11 @@ def lagged_mutual_information(
     seeds = jr.split(jr.PRNGKey(0), n_sequences)
     trans_counts = jax.vmap(count_transitions, in_axes=(0, 0, None))(sequences, mask, n_categories)
     trans_probs = trans_counts / trans_counts.sum(axis=2, keepdims=True)
+    init_probs = trans_counts.sum(axis=2) / trans_counts.sum(axis=(1, 2))
     markov_seqs = jnp.zeros((n_sequences, n_timesteps), dtype=int)
     for i in tqdm.trange(n_sequences, desc="Simulating Markov chains"):
         markov_seqs = markov_seqs.at[i].set(
-            simulate_markov_chain(seeds[i], trans_probs[i], n_timesteps)
+            simulate_markov_chain(seeds[i], trans_probs[i], n_timesteps, init_probs[i])
         )
 
     # compute mutual information 
