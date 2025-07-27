@@ -386,7 +386,7 @@ def lagged_mutual_information(
     seeds = jr.split(jr.PRNGKey(0), n_sequences)
     trans_counts = jax.vmap(count_transitions, in_axes=(0, 0, None))(sequences, mask, n_categories)
     trans_probs = trans_counts / trans_counts.sum(axis=2, keepdims=True)
-    init_probs = trans_counts.sum(axis=2) / trans_counts.sum(axis=(1, 2))
+    init_probs = trans_counts.sum(axis=2) / trans_counts.sum(axis=(1, 2))[:,None]
     markov_seqs = jnp.zeros((n_sequences, n_timesteps), dtype=int)
     for i in tqdm.trange(n_sequences, desc="Simulating Markov chains"):
         markov_seqs = markov_seqs.at[i].set(
