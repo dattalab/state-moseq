@@ -354,7 +354,11 @@ def lagged_mutual_information(
     mask: Bool[Array, "n_sequences n_timesteps"],
     lags: Int[Array, "n_lags"],
     pseudo_count: float = 1e-8,
-) -> Float[Array, "n_sequences n_lags"]:
+) -> Tuple[
+    Float[Array, "n_sequences n_lags"],
+    Float[Array, "n_sequences n_lags"],
+    Float[Array, "n_sequences n_lags"],
+]:
     """Compute mutual information at a range of lags for real data and equivalent Markov chains.
     
     Args:
