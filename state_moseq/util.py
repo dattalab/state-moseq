@@ -151,8 +151,10 @@ def simulate_markov_chain(
     n_states = trans_probs.shape[0]
     log_trans_probs = jnp.log(trans_probs)
     if init_probs is None:
-        init_probs = jnp.ones(n_states) / n_states
-    init_state = jr.categorical(seeds[0], init_probs)
+        log_init_probs = jnp.zeros(n_states)
+    else:
+        log_init_probs = jnp.log(init_probs)
+    init_state = jr.categorical(seeds[0], log_init_probs)
 
     if trans_probs.ndim == 2:
         def step(state, seed):
