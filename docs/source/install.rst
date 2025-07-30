@@ -1,8 +1,5 @@
-Local installation
-==================
-
-- Total installation time is around 10 minutes.
-- The first import of state_moseq after installation can take a few minutes.
+Installation
+============
 
 .. note::
 
@@ -20,7 +17,7 @@ Create a new conda environment with python 3.10::
 Then use pip to install the version of state moseq that you want::
 
    pip install state-moseq # CPU only
-   pip install state-moseq[cuda] # GPU with CUDA 12
+   pip install state-moseq[cuda] # NVIDIA GPU
 
 To run state-moseq in jupyter, either launch jupyterlab directly from the ``state_moseq`` environment or register a globally-accessible jupyter kernel as follows::
 
