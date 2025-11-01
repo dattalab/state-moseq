@@ -1,5 +1,5 @@
-State MoSeq
-===========
+shMoSeq
+=======
 
 
 .. list-table::
@@ -11,7 +11,7 @@ State MoSeq
      - `License <https://github.com/dattalab/state-moseq/blob/main/LICENSE.md>`_
 
 
-State MoSeq (sMoSeq) is a method for discovering high-level states in animal behavior. Given low-level behavior labels (e.g. MoSeq syllables), sMoSeq fits a hierarchical hidden Markov model to identify how behaviors are clustered over time. 
+State-based hierarchical MoSeq (shMoSeq) is a method for discovering high-level states in animal behavior. Given low-level behavior labels (e.g. MoSeq syllables), shMoSeq fits a hierarchical hidden Markov model to identify how behaviors are clustered over time. 
 
 
 Installation
@@ -27,17 +27,17 @@ Installation
 
 Create a new conda environment with python 3.10::
 
-   conda create -n state_moseq python=3.10
-   conda activate state_moseq
+   conda create -n shmoseq python=3.10
+   conda activate shmoseq
 
 Then use pip to install the version of state moseq that you want::
 
    pip install state-moseq # CPU only
    pip install state-moseq[cuda] # NVIDIA GPU
 
-To run state-moseq in jupyter, either launch jupyterlab directly from the ``state_moseq`` environment or register a globally-accessible jupyter kernel as follows::
+To run state-moseq in jupyter, either launch jupyterlab directly from the ``shmoseq`` environment or register a globally-accessible jupyter kernel as follows::
 
-   python -m ipykernel install --user --name=state_moseq
+   python -m ipykernel install --user --name=shmoseq
 
 
 .. toctree::
