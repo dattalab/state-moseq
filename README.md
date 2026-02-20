@@ -1,6 +1,6 @@
 # shMoSeq 
 
-State-based hierarchical MoSeq (shMoSeq) is a method for discovering high-level states states in animal behavior. Given low-level behavior labels (e.g. MoSeq syllables), shMoSeq fits a hierarchical hidden Markov model to identify how behaviors are clustered over time. For additional details, see the [TODO: add paper link].
+State-based hierarchical MoSeq (shMoSeq) is a method for discovering high-level states states in animal behavior. Given low-level behavior labels (e.g. MoSeq syllables), shMoSeq fits a hierarchical hidden Markov model to identify how behaviors are clustered over time. For additional details, see the [paper](https://www.cell.com/neuron/fulltext/S0896-6273(25)00894-3).
 
 
 ## [Documentation](https://state-moseq.readthedocs.io/en/latest/)
