@@ -6,7 +6,7 @@ shMoSeq
    :widths: 25 25 25
    :header-rows: 0
 
-   * - TODO: Paper
+   * - `Paper <https://www.cell.com/neuron/fulltext/S0896-6273(25)00894-3>`_
      - `GitHub <https://github.com/dattalab/state-moseq/>`_
      - `License <https://github.com/dattalab/state-moseq/blob/main/LICENSE.md>`_
 
