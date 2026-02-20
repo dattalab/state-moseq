@@ -5,12 +5,9 @@ State-based hierarchical MoSeq (shMoSeq) is a method for discovering high-level 
 
 ## [Documentation](https://state-moseq.readthedocs.io/en/latest/)
 
-- TODO: Colab
+- [Installation](https://state-moseq.readthedocs.io/en/latest/#installation)
 
-- [Installation](https://state-moseq.readthedocs.io/en/latest/install.html)
-
-- [Tutorial](https://state-moseq.readthedocs.io/en/latest/modeling.html)
-
+- [Tutorial](https://state-moseq.readthedocs.io/en/latest/example_data_tutorial.html)
 
 
 # License
