@@ -11,7 +11,9 @@ shMoSeq
      - `License <https://github.com/dattalab/state-moseq/blob/main/LICENSE.md>`_
 
 
-State-based hierarchical MoSeq (shMoSeq) is a method for discovering high-level states in animal behavior. Given low-level behavior labels (e.g. MoSeq syllables), shMoSeq fits a hierarchical hidden Markov model to identify how behaviors are clustered over time. 
+State-based hierarchical MoSeq (shMoSeq) is a method for discovering high-level states in animal behavior. Given low-level behavior labels (e.g. MoSeq syllables), shMoSeq fits a hierarchical hidden Markov model to identify how behaviors are clustered over time.
+
+For questions and discussion, join the `MoSeq Slack workspace <https://join.slack.com/t/moseqworkspace/shared_invite/zt-151x0shoi-z4J0_g_5rwJDlO1IfCU34A>`_.
 
 
 Installation
@@ -62,3 +64,8 @@ To run state-moseq in jupyter, either launch jupyterlab directly from the ``shmo
    hhmm_standard
    utils
    viz
+
+.. toctree::
+   :maxdepth: 1
+
+   faq
