@@ -9,6 +9,8 @@ State-based hierarchical MoSeq (shMoSeq) is a method for discovering high-level 
 
 - [Tutorial](https://state-moseq.readthedocs.io/en/latest/example_data_tutorial.html)
 
+## Support
+For questions and discussion, join the [MoSeq Slack workspace](https://join.slack.com/t/moseqworkspace/shared_invite/zt-151x0shoi-z4J0_g_5rwJDlO1IfCU34A).
 
 # License
 shMoSeq is freely available for academic use under a license provided by Harvard University. Please refer to the license file for details. If you are interested in using shMoSeq for commercial purposes please contact Bob Datta directly at srdatta@hms.harvard.edu, who will put you in touch with the appropriate people in the Harvard Technology Transfer office.
