@@ -146,6 +146,25 @@ def generate_grid_movies(
     Returns:
         instances: Sampled instances used for grid movies.
     """
+    # Check centroids for negative values and NaNs
+    faq_url = "https://state-moseq.readthedocs.io/en/latest/faq.html#generate-grid-movies-threw-an-error-about-nans-or-negatives-in-my-centroids-what-s-going-on"
+    has_negative = any(np.any(np.asarray(c) < 0) for c in centroids.values())
+    has_nan = any(np.any(np.isnan(np.asarray(c))) for c in centroids.values())
+    if has_negative:
+        raise ValueError(
+            "Negative values found in centroids dict. "
+            "The most common cause of this is using the mm centroid measurement "
+            "from depth MoSeq instead of the px centroid measurement. "
+            f"See the FAQ for details: {faq_url}"
+        )
+    if has_nan:
+        raise ValueError(
+            "NaN values found in centroids dict. "
+            "This is likely due to dropped frames or frames with no detected keypoints. "
+            "Interpolate NaNs before calling this function. "
+            f"See the FAQ for details: {faq_url}"
+        )
+
     os.makedirs(output_dir, exist_ok=True)
     videos = {k: OpenCVReader(path) for k, path in video_paths.items()}
     fps = videos[list(video_paths.keys())[0]].fps
